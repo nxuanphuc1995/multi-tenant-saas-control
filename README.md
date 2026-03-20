@@ -2,6 +2,9 @@
 
 A small but representative slice of a modern multi-tenant SaaS platform built with NestJS, PostgreSQL, and a minimal browser UI for reviewer validation.
 
+# Video demostration
+https://1drv.ms/v/c/7cacc9b6ea9d9249/IQDiPY9H0v6XQr0w_YUqeThkAQ8aqqaJceMh-qokQwremgo?e=mgC2DJ
+
 ## Architecture Overview
 
 The system acts as a central control layer that:
