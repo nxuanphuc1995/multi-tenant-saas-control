@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SaaS Platform — Reviewer UI</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; font-size: 14px; background: #fafafa; color: #111; }
+
+    header {
+      background: #111; color: #fff; padding: 10px 16px;
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    header strong { font-size: 16px; margin-right: auto; }
+    header label { font-size: 12px; color: #aaa; }
+    header select { font-family: monospace; padding: 3px 6px; font-size: 13px; }
+    .role-badge {
+      background: #333; color: #0f0; padding: 2px 8px;
+      border: 1px solid #0f0; font-size: 12px;
+    }
+
+    main { padding: 16px; max-width: 1100px; margin: 0 auto; }
+
+    h2 { font-size: 15px; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; background: #eee; padding: 5px 8px; border: 1px solid #ccc; }
+    td { padding: 5px 8px; border: 1px solid #ddd; vertical-align: top; }
+    tr:hover td { background: #f5f5f5; }
+
+    button {
+      font-family: monospace; font-size: 13px; padding: 4px 10px;
+      border: 1px solid #888; background: #fff; cursor: pointer;
+    }
+    button:hover { background: #eee; }
+    button.primary { background: #111; color: #fff; border-color: #111; }
+    button.primary:hover { background: #333; }
+    button.danger { border-color: #c00; color: #c00; }
+    button.danger:hover { background: #fee; }
+    button.small { padding: 2px 7px; font-size: 12px; }
+
+    .msg-error   { color: #c00; background: #fee; border: 1px solid #fcc; padding: 6px 10px; margin: 8px 0; }
+    .msg-success { color: #060; background: #efe; border: 1px solid #cfc; padding: 6px 10px; margin: 8px 0; }
+    .msg-info    { color: #333; background: #f0f0f0; border: 1px solid #ccc; padding: 6px 10px; margin: 8px 0; font-size: 12px; }
+
+    .grid2 { display: grid; grid-template-columns: 240px 1fr; gap: 16px; }
+
+    .panel { border: 1px solid #ccc; padding: 12px; background: #fff; }
+    .panel h3 { font-size: 13px; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+
+    form label { display: block; font-size: 12px; color: #555; margin-top: 8px; margin-bottom: 2px; }
+    form input, form textarea {
+      width: 100%; font-family: monospace; font-size: 13px;
+      padding: 4px 6px; border: 1px solid #bbb;
+    }
+    form textarea { resize: vertical; }
+    form .row { display: flex; gap: 6px; margin-top: 10px; }
+
+    .back-link { cursor: pointer; color: #00f; text-decoration: underline; font-size: 13px; margin-bottom: 12px; display: inline-block; }
+
+    .ext-item { border: 1px solid #ccc; padding: 6px 10px; margin-bottom: 6px; background: #fff; font-size: 13px; }
+    .ext-name { font-weight: bold; }
+    .ext-meta { color: #666; font-size: 11px; margin-top: 2px; }
+
+    .audit-outcome-success { color: #060; font-weight: bold; }
+    .audit-outcome-failure { color: #c00; font-weight: bold; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+// ── API helper ──────────────────────────────────────────────────────────────
+async function api(path, method = 'GET', body = null, token = null) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`/api${path}`, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = Array.isArray(data.message) ? data.message.join('; ') : (data.message || `HTTP ${res.status}`);
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function genKey() {
+  return 'idem-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+}
+
+// ── Msg component ───────────────────────────────────────────────────────────
+function Msg({ text, type }) {
+  if (!text) return null;
+  return <div className={`msg-${type || 'info'}`} style={{ whiteSpace: 'pre-wrap' }}>{text}</div>;
+}
+
+// ── Header ──────────────────────────────────────────────────────────────────
+function Header({ users, practices, selectedUser, selectedPractice, onUserChange, onPracticeChange }) {
+  return (
+    <header>
+      <strong>SaaS Platform</strong>
+
+      <span>
+        <label>USER</label><br />
+        <select value={selectedUser} onChange={e => onUserChange(e.target.value)}>
+          <option value="">— select user —</option>
+          {users.map(u => (
+            <option key={u.id} value={u.email}>{u.name} &lt;{u.email}&gt;</option>
+          ))}
+        </select>
+      </span>
+
+      <span>
+        <label>PRACTICE</label><br />
+        <select
+          value={selectedPractice ? JSON.stringify(selectedPractice) : ''}
+          onChange={e => onPracticeChange(e.target.value ? JSON.parse(e.target.value) : null)}
+          disabled={practices.length === 0}
+        >
+          <option value="">— select practice —</option>
+          {practices.map(p => (
+            <option key={p.id} value={JSON.stringify({ id: p.id, name: p.name, role: p.role })}>
+              {p.name} ({p.role})
+            </option>
+          ))}
+        </select>
+      </span>
+
+      {selectedPractice && <span className="role-badge">{selectedPractice.role}</span>}
+    </header>
+  );
+}
+
+// ── Screen 1 — Client List ──────────────────────────────────────────────────
+function Screen1({ practice, token, onViewClient }) {
+  const [clients, setClients] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [clientsMsg, setClientsMsg] = useState(null);
+  const [createMsg, setCreateMsg] = useState(null);
+
+  const loadClients = useCallback(async () => {
+    try {
+      const data = await api(`/practices/${practice.id}/clients`, 'GET', null, token);
+      setClients(data);
+      setClientsMsg(null);
+    } catch (e) {
+      setClientsMsg({ text: e.message, type: 'error' });
+    }
+  }, [practice.id, token]);
+
+  useEffect(() => { loadClients(); }, [loadClients]);
+
+  async function createClient(e) {
+    e.preventDefault();
+    try {
+      await api(`/practices/${practice.id}/clients`, 'POST', { name: newName, email: newEmail || undefined }, token);
+      setNewName(''); setNewEmail('');
+      setShowForm(false); setCreateMsg(null);
+      await loadClients();
+    } catch (err) {
+      setCreateMsg({ text: err.message, type: 'error' });
+    }
+  }
+
+  async function deleteClient(id, name) {
+    if (!confirm(`Delete client "${name}"?`)) return;
+    try {
+      await api(`/practices/${practice.id}/clients/${id}`, 'DELETE', null, token);
+      await loadClients();
+    } catch (err) {
+      setClientsMsg({ text: err.message, type: 'error' });
+    }
+  }
+
+  return (
+    <main>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 10 }}>
+        <h2 style={{ border: 'none', margin: 0 }}>Clients</h2>
+        <button className="primary small" onClick={() => setShowForm(v => !v)}>+ Create Client</button>
+      </div>
+
+      {showForm && (
+        <div className="panel" style={{ marginBottom: 12, maxWidth: 400 }}>
+          <h3>New Client</h3>
+          <form onSubmit={createClient}>
+            <label>Name</label>
+            <input value={newName} onChange={e => setNewName(e.target.value)} required />
+            <label>Email</label>
+            <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
+            <div className="row">
+              <button type="submit" className="primary">Save</button>
+              <button type="button" onClick={() => { setShowForm(false); setCreateMsg(null); }}>Cancel</button>
+            </div>
+          </form>
+          {createMsg && <Msg {...createMsg} />}
+        </div>
+      )}
+
+      <table>
+        <thead><tr><th>Name</th><th>Email</th><th>ID</th><th></th></tr></thead>
+        <tbody>
+          {clients.length === 0 ? (
+            <tr><td colSpan={4} style={{ color: '#999' }}>No clients yet.</td></tr>
+          ) : clients.map(c => (
+            <tr key={c.id}>
+              <td>{c.name}</td>
+              <td>{c.email || '—'}</td>
+              <td style={{ color: '#888', fontSize: 12 }}>{c.id}</td>
+              <td style={{ display: 'flex', gap: 6 }}>
+                <button className="small" onClick={() => onViewClient(c)}>View →</button>
+                <button className="small danger" onClick={() => deleteClient(c.id, c.name)}>Delete</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {clientsMsg && <Msg {...clientsMsg} />}
+    </main>
+  );
+}
+
+// ── Extensions Panel ────────────────────────────────────────────────────────
+function ExtensionsPanel({ practice, client, token }) {
+  const [exts, setExts] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setExts(null); setError(null);
+    api(`/practices/${practice.id}/clients/${client.id}/extensions?slot=client.sidepanel`, 'GET', null, token)
+      .then(setExts)
+      .catch(e => setError(e.message));
+  }, [practice.id, client.id, token]);
+
+  return (
+    <div className="panel">
+      <h3>Extensions — <code>client.sidepanel</code></h3>
+      {!exts && !error && <em style={{ color: '#999', fontSize: 12 }}>Loading…</em>}
+      {error && <Msg text={error} type="error" />}
+      {exts && exts.length === 0 && (
+        <div className="msg-info" style={{ margin: 0, fontSize: 12 }}>
+          No extensions available for this slot / role / scopes combination.
+        </div>
+      )}
+      {exts && exts.map(ext => (
+        <div className="ext-item" key={ext.id}>
+          <div className="ext-name">{ext.name}</div>
+          <div className="ext-meta">
+            slot: {ext.slot}<br />
+            scopes: {(ext.requiredScopes || []).join(', ') || '—'}<br />
+            roles: {(ext.visibleToRoles || []).join(', ') || '—'}
+          </div>
+          {ext.description && <div style={{ marginTop: 4, color: '#444' }}>{ext.description}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Send Email Form ─────────────────────────────────────────────────────────
+function SendEmailForm({ practice, client, token, onSent }) {
+  const canSend = ['PracticeAdmin', 'Integration'].includes(practice.role);
+  const [to, setTo] = useState('');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [idempKey, setIdempKey] = useState(genKey);
+  const [result, setResult] = useState(null);
+
+  async function sendEmail(e) {
+    e.preventDefault();
+    try {
+      const res = await api(`/practices/${practice.id}/actions`, 'POST', {
+        type: 'email.send',
+        client_id: client.id,
+        to, subject, body,
+        idempotency_key: idempKey,
+      }, token);
+      const label = res.idempotent ? '⚠ Idempotent — duplicate key, not re-executed' : '✓ Email sent';
+      setResult({ text: `${label}\nactionRun.id: ${res.actionRun.id}\nstatus: ${res.actionRun.status}`, type: res.idempotent ? 'info' : 'success' });
+      if (!res.idempotent) {
+        setTo(''); setSubject(''); setBody(''); setIdempKey(genKey());
+      }
+      onSent();
+    } catch (err) {
+      setResult({ text: err.message, type: 'error' });
+    }
+  }
+
+  return (
+    <div className="panel">
+      <h3>Send Email <span style={{ fontWeight: 'normal', color: '#666' }}>(Action Gateway)</span></h3>
+      {!canSend ? (
+        <div className="msg-error">
+          Role <strong>{practice.role}</strong> does not have the <code>action:email.send</code> permission.
+        </div>
+      ) : (
+        <form onSubmit={sendEmail}>
+          <label>To</label>
+          <input type="email" value={to} onChange={e => setTo(e.target.value)} required />
+          <label>Subject</label>
+          <input value={subject} onChange={e => setSubject(e.target.value)} required />
+          <label>Body</label>
+          <textarea rows={3} value={body} onChange={e => setBody(e.target.value)} required />
+          <label>Idempotency Key</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input value={idempKey} onChange={e => setIdempKey(e.target.value)} required style={{ flex: 1 }} />
+            <button type="button" onClick={() => setIdempKey(genKey())} style={{ whiteSpace: 'nowrap' }}>Generate</button>
+          </div>
+          <div className="row">
+            <button type="submit" className="primary">Send</button>
+          </div>
+          {result && <Msg {...result} />}
+        </form>
+      )}
+    </div>
+  );
+}
+
+// ── Audit Log ───────────────────────────────────────────────────────────────
+function AuditLog({ practice, token, refreshTrigger }) {
+  const [logs, setLogs] = useState([]);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(() => {
+    setMsg(null);
+    api(`/practices/${practice.id}/audit`, 'GET', null, token)
+      .then(data => { setLogs(data); })
+      .catch(e => setMsg({ text: e.message, type: 'error' }));
+  }, [practice.id, token, refreshTrigger]);
+
+  return (
+    <div className="panel">
+      <h3>Audit Log</h3>
+      <div style={{ overflowX: 'auto' }}>
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Actor</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            {logs.length === 0 ? (
+              <tr><td colSpan={5} style={{ color: '#999' }}>No entries yet.</td></tr>
+            ) : logs.map(l => (
+              <tr key={l.id}>
+                <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{new Date(l.timestamp).toLocaleString()}</td>
+                <td style={{ fontSize: 11, color: '#666' }}>
+                  {l.actor?.name ?? '—'} <span style={{ color: '#aaa' }}>({l.actor?.type ?? ''})</span>
+                </td>
+                <td><code>{l.action}</code></td>
+                <td>{l.target?.name ?? '—'}</td>
+                <td className={`audit-outcome-${l.outcome}`}>{l.outcome}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {msg && <Msg {...msg} />}
+    </div>
+  );
+}
+
+// ── Screen 2 — Client Detail ────────────────────────────────────────────────
+function Screen2({ practice, client, token, onBack }) {
+  const [auditTick, setAuditTick] = useState(0);
+
+  return (
+    <main>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <span className="back-link" onClick={onBack}>← Back to clients</span>
+        <span style={{ fontWeight: 'bold' }}>{client.name}</span>
+        <span style={{ fontSize: 13, color: '#555' }}>id: {client.id} · email: {client.email || '—'}</span>
+      </div>
+
+      <div className="grid2">
+        <ExtensionsPanel practice={practice} client={client} token={token} />
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <SendEmailForm
+            practice={practice}
+            client={client}
+            token={token}
+            onSent={() => setAuditTick(t => t + 1)}
+          />
+          {practice.role === 'PracticeAdmin' && (
+            <AuditLog practice={practice} token={token} refreshTrigger={auditTick} />
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+// ── App ─────────────────────────────────────────────────────────────────────
+function App() {
+  const [users, setUsers] = useState([]);
+  const [practices, setPractices] = useState([]);
+  const [token, setToken] = useState(null);
+  const [selectedUser, setSelectedUser] = useState('');
+  const [selectedPractice, setSelectedPractice] = useState(null);
+  const [currentClient, setCurrentClient] = useState(null);
+  const [headerMsg, setHeaderMsg] = useState(null);
+
+  useEffect(() => {
+    api('/users').then(setUsers).catch(e => setHeaderMsg({ text: e.message, type: 'error' }));
+  }, []);
+
+  async function onUserChange(email) {
+    setSelectedUser(email);
+    setSelectedPractice(null);
+    setCurrentClient(null);
+    setPractices([]);
+    setToken(null);
+    setHeaderMsg(null);
+    if (!email) return;
+    try {
+      const res = await api('/auth/impersonate', 'POST', { email });
+      setToken(res.access_token);
+      const data = await api('/practices', 'GET', null, res.access_token);
+      setPractices(data);
+    } catch (e) {
+      setHeaderMsg({ text: e.message, type: 'error' });
+    }
+  }
+
+  function onPracticeChange(practice) {
+    setSelectedPractice(practice);
+    setCurrentClient(null);
+  }
+
+  return (
+    <>
+      <Header
+        users={users}
+        practices={practices}
+        selectedUser={selectedUser}
+        selectedPractice={selectedPractice}
+        onUserChange={onUserChange}
+        onPracticeChange={onPracticeChange}
+      />
+
+      {headerMsg && (
+        <main><Msg {...headerMsg} /></main>
+      )}
+
+      {!selectedPractice && !headerMsg && (
+        <main>
+          <div className="msg-info" style={{ marginTop: 16 }}>Select a user and practice above to begin.</div>
+        </main>
+      )}
+
+      {selectedPractice && !currentClient && (
+        <Screen1
+          practice={selectedPractice}
+          token={token}
+          onViewClient={setCurrentClient}
+        />
+      )}
+
+      {selectedPractice && currentClient && (
+        <Screen2
+          practice={selectedPractice}
+          client={currentClient}
+          token={token}
+          onBack={() => setCurrentClient(null)}
+        />
+      )}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
